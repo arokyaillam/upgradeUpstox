@@ -50,8 +50,8 @@ class UpstoxDataManager:
     - Upstox WebSocket -> Protobuf Decode -> JSON -> Redis Stream
     """
     
-    DATA_RETENTION_SECONDS = 60  # Keep data for 1 minute (hot storage)
-    DATA_RETENTION_SECONDS = 259200  # Keep data for 3 days (allow weekend testing)
+    # TBT Data Retention: 2 Minutes (120 seconds) - Keep recent ticks for processing
+    DATA_RETENTION_SECONDS = 120
     RECONNECT_DELAY = 5  # Seconds between reconnection attempts
     
     def __init__(
