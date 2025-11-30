@@ -119,7 +119,7 @@ class UpstoxDataManager:
         feed_response.ParseFromString(buffer)
         return feed_response
     
-    async def update_subscriptions(self, new_keys_list: List[str]) -> None:
+    async def update_subscriptions(self, new_keys_list: List[str], guid: str = "whale_hunter_options") -> None:
         """
         Dynamically update option subscriptions while keeping INDEX always subscribed.
         
@@ -130,6 +130,7 @@ class UpstoxDataManager:
         
         Args:
             new_keys_list: List of new option instrument keys to subscribe
+            guid: Unique identifier for this subscription group
         """
         new_keys_set = set(new_keys_list)
         
@@ -141,7 +142,7 @@ class UpstoxDataManager:
         if keys_to_unsubscribe:
             logger.info(f"📤 Unsubscribing {len(keys_to_unsubscribe)} old option keys")
             unsubscribe_msg = {
-                "guid": "whale_hunter",
+                "guid": guid,
                 "method": "unsub",
                 "data": {
                     "instrumentKeys": list(keys_to_unsubscribe)
@@ -153,7 +154,7 @@ class UpstoxDataManager:
         if keys_to_subscribe:
             logger.info(f"📥 Subscribing {len(keys_to_subscribe)} new option keys")
             subscribe_msg = {
-                "guid": "whale_hunter",
+                "guid": guid,
                 "method": "sub",
                 "data": {
                     "mode": "full_d30",  # FULL mode: get depth, greeks, OHLC
@@ -249,7 +250,7 @@ class UpstoxDataManager:
         """
         # Subscribe to INDEX (always FULL mode for OHLC)
         index_msg = {
-            "guid": "whale_hunter",
+            "guid": "whale_hunter_index",
             "method": "sub",
             "data": {
                 "mode": "full",
@@ -261,7 +262,7 @@ class UpstoxDataManager:
         
         # Subscribe to OPTION keys
         if option_keys:
-            await self.update_subscriptions(option_keys)
+            await self.update_subscriptions(option_keys, guid="whale_hunter_options")
     
     async def start_stream(self, initial_option_keys: List[str]) -> None:
         """
