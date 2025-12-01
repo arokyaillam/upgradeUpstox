@@ -108,6 +108,21 @@ class PostgresClient:
             """,
             """
             CREATE INDEX IF NOT EXISTS idx_greeks_momentum_timestamp ON greeks_momentum(timestamp);
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS whale_alerts (
+                id SERIAL PRIMARY KEY,
+                timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+                instrument_key VARCHAR(50) NOT NULL,
+                whale_type VARCHAR(50) NOT NULL,
+                alert_type VARCHAR(50) NOT NULL,
+                alert_value FLOAT,
+                signal VARCHAR(50),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_whale_alerts_timestamp ON whale_alerts(timestamp);
             """
         ]
 
@@ -210,5 +225,27 @@ class PostgresClient:
                 data['theta_acceleration'],
                 data['momentum_score'],
                 data['momentum_type'],
+                data['signal']
+            )
+
+    async def insert_whale_alert(self, data: Dict[str, Any]):
+        """Insert a whale alert."""
+        if not self.pool:
+            return
+
+        query = """
+            INSERT INTO whale_alerts 
+            (timestamp, instrument_key, whale_type, alert_type, alert_value, signal)
+            VALUES ($1, $2, $3, $4, $5, $6)
+        """
+        
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                query,
+                data['timestamp'],
+                data['instrument_key'],
+                data['whale_type'],
+                data['alert_type'],
+                data['alert_value'],
                 data['signal']
             )
