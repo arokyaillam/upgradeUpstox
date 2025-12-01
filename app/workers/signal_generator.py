@@ -118,16 +118,24 @@ class SignalGenerator:
                     # Publish to Redis Pub/Sub (Convert datetime to str for JSON)
                     redis_payload = signal_payload.copy()
                     redis_payload['timestamp'] = redis_payload['timestamp'].isoformat()
+                    redis_payload['type'] = 'pattern'
                     await self.redis.client.publish("trade_signals", json.dumps(redis_payload))
-                    
+
                     # Insert into PostgreSQL (Main Table)
                     await self.pg.insert_pattern(signal_payload)
-                    
+
                     # Insert into PostgreSQL (Panic Table) if Panic Detected
                     if result.get('is_panic', False):
                         await self.pg.insert_panic_signal(signal_payload)
+
+                        # Publish panic signal to Redis
+                        panic_redis_payload = signal_payload.copy()
+                        panic_redis_payload['timestamp'] = current_time.isoformat()
+                        panic_redis_payload['type'] = 'panic'
+                        await self.redis.client.publish("trade_signals", json.dumps(panic_redis_payload))
+
                         logger.info(f"🔥 PANIC SIGNAL: {instrument_key} | {result['pattern']} | OI Drop: {result['oi_change']} | Price Jump: {result['price_change_pct']:.2f}%")
-                    
+
                     # Insert into PostgreSQL (Imbalance Table)
                     imbalance_payload = {
                         "timestamp": current_time,
@@ -139,7 +147,13 @@ class SignalGenerator:
                         "ltp": imbalance_result['ltp']
                     }
                     await self.pg.insert_imbalance(imbalance_payload)
-                    
+
+                    # Publish imbalance to Redis
+                    imbalance_redis = imbalance_payload.copy()
+                    imbalance_redis['timestamp'] = current_time.isoformat()
+                    imbalance_redis['type'] = 'imbalance'
+                    await self.redis.client.publish("trade_signals", json.dumps(imbalance_redis))
+
                     # Insert into PostgreSQL (Greeks Momentum Table)
                     greeks_payload = {
                         "timestamp": current_time,
@@ -153,7 +167,13 @@ class SignalGenerator:
                         "signal": greeks_result['signal']
                     }
                     await self.pg.insert_greeks_momentum(greeks_payload)
-                    
+
+                    # Publish greeks to Redis
+                    greeks_redis = greeks_payload.copy()
+                    greeks_redis['timestamp'] = current_time.isoformat()
+                    greeks_redis['type'] = 'greeks'
+                    await self.redis.client.publish("trade_signals", json.dumps(greeks_redis))
+
                     # Insert into PostgreSQL (Whale Alerts Table)
                     for alert in whale_alerts:
                         whale_payload = {
@@ -165,15 +185,22 @@ class SignalGenerator:
                             "signal": alert['signal']
                         }
                         await self.pg.insert_whale_alert(whale_payload)
+
+                        # Publish whale alert to Redis
+                        whale_redis = whale_payload.copy()
+                        whale_redis['timestamp'] = current_time.isoformat()
+                        whale_redis['type'] = 'whale'
+                        await self.redis.client.publish("trade_signals", json.dumps(whale_redis))
+
                         logger.info(f"🐋 WHALE ALERT: {instrument_key} | {alert['whale_type']} | {alert['alert_type']} ({alert['alert_value']})")
-                    
+
                     # 11. Ultimate Sentiment Analysis (Metric 5)
                     # Fetch recent data from PG to include context
                     pg_data = await self.pg.get_recent_signals(instrument_key, limit=10)
-                    
+
                     # Analyze Sentiment
                     sentiment_result = analyze_market_sentiment(pg_data, result['ltp'])
-                    
+
                     # Insert into PostgreSQL (Sentiment Table)
                     sentiment_payload = {
                         "timestamp": current_time,
@@ -187,6 +214,12 @@ class SignalGenerator:
                         "key_insights": sentiment_result['key_insights']
                     }
                     await self.pg.insert_market_sentiment(sentiment_payload)
+
+                    # Publish sentiment to Redis
+                    sentiment_redis = sentiment_payload.copy()
+                    sentiment_redis['timestamp'] = current_time.isoformat()
+                    sentiment_redis['type'] = 'sentiment'
+                    await self.redis.client.publish("trade_signals", json.dumps(sentiment_redis))
                     
                     if result['pattern'] not in ["Low Volume", "Neutral", "Insufficient Data"]:
                         logger.info(f"🚨 SIGNAL: {instrument_key} | {result['pattern']} ({result['signal']}) | OI Chg: {result['oi_change']}")

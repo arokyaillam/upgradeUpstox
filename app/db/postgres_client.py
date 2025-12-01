@@ -380,3 +380,55 @@ class PostgresClient:
             results['whales'] = [dict(r) for r in rows]
             
         return results
+
+    async def get_dashboard_data(self, limit: int = 50) -> Dict[str, List[Dict[str, Any]]]:
+        """Fetch recent data for the dashboard from all tables."""
+        if not self.pool:
+            return {}
+
+        results = {}
+        
+        async with self.pool.acquire() as conn:
+            # 1. Market Patterns
+            rows = await conn.fetch("""
+                SELECT * FROM market_patterns 
+                ORDER BY timestamp DESC LIMIT $1
+            """, limit)
+            results['patterns'] = [dict(r) for r in rows]
+            
+            # 2. Panic Signals
+            rows = await conn.fetch("""
+                SELECT * FROM panic_signals 
+                ORDER BY timestamp DESC LIMIT $1
+            """, limit)
+            results['panic'] = [dict(r) for r in rows]
+            
+            # 3. Order Imbalance
+            rows = await conn.fetch("""
+                SELECT * FROM order_imbalance 
+                ORDER BY timestamp DESC LIMIT $1
+            """, limit)
+            results['imbalance'] = [dict(r) for r in rows]
+            
+            # 4. Greeks Momentum
+            rows = await conn.fetch("""
+                SELECT * FROM greeks_momentum 
+                ORDER BY timestamp DESC LIMIT $1
+            """, limit)
+            results['greeks'] = [dict(r) for r in rows]
+            
+            # 5. Whale Alerts
+            rows = await conn.fetch("""
+                SELECT * FROM whale_alerts 
+                ORDER BY timestamp DESC LIMIT $1
+            """, limit)
+            results['whales'] = [dict(r) for r in rows]
+            
+            # 6. Market Sentiment
+            rows = await conn.fetch("""
+                SELECT * FROM market_sentiment 
+                ORDER BY timestamp DESC LIMIT $1
+            """, limit)
+            results['sentiment'] = [dict(r) for r in rows]
+            
+        return results
