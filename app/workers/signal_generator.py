@@ -1,0 +1,132 @@
+import asyncio
+import logging
+import json
+import os
+import sys
+from datetime import datetime
+
+# Add app to path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+from app.db.redis_client import RedisClient
+from app.db.postgres_client import PostgresClient
+from app.services.processor import MarketDataProcessor
+from app.analytics.pattern_detector import analyze_oi_pattern
+
+# Configure Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger("SignalGenerator")
+
+class SignalGenerator:
+    def __init__(self):
+        self.redis = RedisClient()
+        self.pg = PostgresClient()
+        self.processor = MarketDataProcessor()
+        self.running = False
+
+    async def start(self):
+        """Start the signal generation loop."""
+        logger.info("🚀 Starting Signal Generator...")
+        await self.redis.connect()
+        await self.pg.connect()
+        await self.processor.connect()
+        self.running = True
+        
+        try:
+            while self.running:
+                # 1. Align to next minute start
+                now = datetime.now()
+                # Calculate seconds to sleep to reach next minute (00 seconds)
+                sleep_seconds = 60 - now.second - (now.microsecond / 1_000_000)
+                if sleep_seconds < 0.1: sleep_seconds += 60 # Safety buffer if too close
+                
+                logger.info(f"⏳ Waiting {sleep_seconds:.2f}s for next minute candle...")
+                await asyncio.sleep(sleep_seconds)
+                
+                # 2. Define Time Window (Previous Minute)
+                # If we just woke up at 09:31:00, we want 09:30:00 to 09:31:00
+                current_time = datetime.now()
+                end_time_ms = int(current_time.timestamp() * 1000)
+                start_time_ms = end_time_ms - 60000 # 60 seconds ago
+                
+                logger.info(f"🕒 Processing Candle: {current_time.strftime('%H:%M:%S')} (Window: -60s)")
+
+                # 3. Scan for active streams
+                cursor = b'0'
+                streams = []
+                while cursor:
+                    cursor, keys = await self.redis.client.scan(cursor, match="stream:*", count=100)
+                    streams.extend(keys)
+                    if cursor == b'0':
+                        break
+                
+                if not streams:
+                    logger.warning("⚠️ No active streams found.")
+                    continue
+
+                logger.info(f"🔍 Scanning {len(streams)} streams for patterns...")
+                
+                for stream_key_bytes in streams:
+                    stream_key = stream_key_bytes.decode('utf-8')
+                    instrument_key = stream_key.replace("stream:", "")
+                    
+                    # 4. Fetch Data (Exact Previous Minute)
+                    ticks = await self.processor.fetch_ticks_range(instrument_key, start_time_ms, end_time_ms)
+                    
+                    if not ticks:
+                        continue
+                        
+                    # 5. Convert to Arrays
+                    arrays = self.processor.get_arrays(ticks)
+                    
+                    # 6. Analyze Pattern
+                    result = analyze_oi_pattern(arrays)
+                    
+                    # 7. Publish Signal if Significant
+                    if result['pattern'] not in ["Low Volume", "Neutral", "Insufficient Data"]:
+                        signal_payload = {
+                            "timestamp": current_time, # Keep as datetime object for PG
+                            "instrument_key": instrument_key,
+                            "pattern": result['pattern'],
+                            "signal": result['signal'],
+                            "metrics": {
+                                "price_change": result['price_change'],
+                                "oi_change": result['oi_change'],
+                                "volume_change": result['volume_change']
+                            }
+                        }
+                        
+                        # Publish to Redis Pub/Sub (Convert datetime to str for JSON)
+                        redis_payload = signal_payload.copy()
+                        redis_payload['timestamp'] = redis_payload['timestamp'].isoformat()
+                        await self.redis.client.publish("trade_signals", json.dumps(redis_payload))
+                        
+                        # Insert into PostgreSQL
+                        await self.pg.insert_pattern(signal_payload)
+                        
+                        logger.info(f"🚨 SIGNAL: {instrument_key} | {result['pattern']} ({result['signal']}) | OI Chg: {result['oi_change']}")
+                        
+        except asyncio.CancelledError:
+            logger.info("🛑 Signal Generator stopping...")
+        except Exception as e:
+            logger.error(f"❌ Error in signal loop: {e}", exc_info=True)
+        finally:
+            await self.stop()
+
+    async def stop(self):
+        self.running = False
+        await self.redis.disconnect()
+        await self.pg.disconnect()
+        await self.processor.disconnect()
+        logger.info("👋 Signal Generator stopped.")
+
+if __name__ == "__main__":
+    generator = SignalGenerator()
+    try:
+        asyncio.run(generator.start())
+    except KeyboardInterrupt:
+        pass

@@ -27,28 +27,28 @@ class MarketDataProcessor:
     async def fetch_ticks(self, instrument_key: str, duration_seconds: int = 60) -> List[Dict[str, Any]]:
         """
         Fetch raw ticks from Redis stream for the last N seconds.
+        """
+        current_time_ms = int(time.time() * 1000)
+        start_time_ms = current_time_ms - (duration_seconds * 1000)
+        return await self.fetch_ticks_range(instrument_key, start_time_ms, current_time_ms)
+
+    async def fetch_ticks_range(self, instrument_key: str, start_time_ms: int, end_time_ms: int) -> List[Dict[str, Any]]:
+        """
+        Fetch raw ticks from Redis stream for a specific time range.
         
         Args:
-            instrument_key: The instrument key (e.g., 'NSE_INDEX|Nifty 50')
-            duration_seconds: How far back to fetch data (default 60s)
+            instrument_key: The instrument key
+            start_time_ms: Start timestamp in milliseconds
+            end_time_ms: End timestamp in milliseconds
             
         Returns:
             List of tick dictionaries
         """
-        # Handle readable names if needed, but assuming raw key for now or mapped name
-        # The ingestion service uses "stream:{readable_name}"
-        # We'll assume the caller passes the correct stream suffix or we can try both
-        
         stream_key = f"stream:{instrument_key}"
         
-        # Calculate min ID for time window
-        current_time_ms = int(time.time() * 1000)
-        min_id = current_time_ms - (duration_seconds * 1000)
-        
         try:
-            # XRANGE stream_key min_id + COUNT 10000 (safe limit)
-            # We use min_id as start, '+' as end
-            entries = await self.redis_client.client.xrange(stream_key, min=min_id, max="+")
+            # XRANGE stream_key start end
+            entries = await self.redis_client.client.xrange(stream_key, min=start_time_ms, max=end_time_ms)
             
             ticks = []
             for entry_id, data in entries:
