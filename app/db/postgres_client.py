@@ -1,7 +1,9 @@
 import asyncpg
 import logging
 import os
+import json
 from typing import List, Dict, Any, Optional
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -150,10 +152,11 @@ class PostgresClient:
         
         logger.info("✅ Tables verified/created")
 
-    async def insert_pattern(self, data: Dict[str, Any]):
+    async def insert_pattern(self, data: Dict[str, Any]) -> bool:
         """Insert a pattern detection result."""
         if not self.pool:
-            return
+            logger.warning("⚠️ PostgreSQL pool not available...")
+            return False
 
         query = """
             INSERT INTO market_patterns 
@@ -161,22 +164,28 @@ class PostgresClient:
             VALUES ($1, $2, $3, $4, $5, $6, $7)
         """
         
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                query,
-                data['timestamp'],
-                data['instrument_key'],
-                data['pattern'],
-                data['signal'],
-                data['metrics']['price_change'],
-                data['metrics']['oi_change'],
-                data['metrics']['volume_change']
-            )
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    query,
+                    data['timestamp'],
+                    data['instrument_key'],
+                    data['pattern'],
+                    data['signal'],
+                    data['metrics']['price_change'],
+                    data['metrics']['oi_change'],
+                    data['metrics']['volume_change']
+                )
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to insert pattern: {e}")
+            return False
 
-    async def insert_panic_signal(self, data: Dict[str, Any]):
+    async def insert_panic_signal(self, data: Dict[str, Any]) -> bool:
         """Insert a panic signal."""
         if not self.pool:
-            return
+            logger.warning("⚠️ PostgreSQL pool not available...")
+            return False
 
         query = """
             INSERT INTO panic_signals 
@@ -184,24 +193,30 @@ class PostgresClient:
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         """
         
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                query,
-                data['timestamp'],
-                data['instrument_key'],
-                data['pattern'],
-                data['signal'],
-                data['metrics']['ltp'],
-                data['metrics']['price_change_pct'],
-                data['metrics']['oi_change'],
-                data['metrics']['volume_change'],
-                data['metrics']['delta_change']
-            )
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    query,
+                    data['timestamp'],
+                    data['instrument_key'],
+                    data['pattern'],
+                    data['signal'],
+                    data['metrics']['ltp'],
+                    data['metrics']['price_change_pct'],
+                    data['metrics']['oi_change'],
+                    data['metrics']['volume_change'],
+                    data['metrics']['delta_change']
+                )
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to insert panic signal: {e}")
+            return False
 
-    async def insert_imbalance(self, data: Dict[str, Any]):
+    async def insert_imbalance(self, data: Dict[str, Any]) -> bool:
         """Insert an order book imbalance record."""
         if not self.pool:
-            return
+            logger.warning("⚠️ PostgreSQL pool not available...")
+            return False
 
         query = """
             INSERT INTO order_imbalance 
@@ -209,22 +224,28 @@ class PostgresClient:
             VALUES ($1, $2, $3, $4, $5, $6, $7)
         """
         
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                query,
-                data['timestamp'],
-                data['instrument_key'],
-                data['tbq'],
-                data['tsq'],
-                data['imbalance_ratio'],
-                data['signal'],
-                data['ltp']
-            )
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    query,
+                    data['timestamp'],
+                    data['instrument_key'],
+                    data['tbq'],
+                    data['tsq'],
+                    data['imbalance_ratio'],
+                    data['signal'],
+                    data['ltp']
+                )
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to insert imbalance: {e}")
+            return False
 
-    async def insert_greeks_momentum(self, data: Dict[str, Any]):
+    async def insert_greeks_momentum(self, data: Dict[str, Any]) -> bool:
         """Insert a greeks momentum record."""
         if not self.pool:
-            return
+            logger.warning("⚠️ PostgreSQL pool not available...")
+            return False
 
         query = """
             INSERT INTO greeks_momentum 
@@ -232,24 +253,30 @@ class PostgresClient:
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         """
         
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                query,
-                data['timestamp'],
-                data['instrument_key'],
-                data['delta_velocity'],
-                data['gamma_acceleration'],
-                data['iv_velocity'],
-                data['theta_acceleration'],
-                data['momentum_score'],
-                data['momentum_type'],
-                data['signal']
-            )
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    query,
+                    data['timestamp'],
+                    data['instrument_key'],
+                    data['delta_velocity'],
+                    data['gamma_acceleration'],
+                    data['iv_velocity'],
+                    data['theta_acceleration'],
+                    data['momentum_score'],
+                    data['momentum_type'],
+                    data['signal']
+                )
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to insert greeks momentum: {e}")
+            return False
 
-    async def insert_whale_alert(self, data: Dict[str, Any]):
+    async def insert_whale_alert(self, data: Dict[str, Any]) -> bool:
         """Insert a whale alert."""
         if not self.pool:
-            return
+            logger.warning("⚠️ PostgreSQL pool not available...")
+            return False
 
         query = """
             INSERT INTO whale_alerts 
@@ -257,21 +284,27 @@ class PostgresClient:
             VALUES ($1, $2, $3, $4, $5, $6)
         """
         
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                query,
-                data['timestamp'],
-                data['instrument_key'],
-                data['whale_type'],
-                data['alert_type'],
-                data['alert_value'],
-                data['signal']
-            )
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    query,
+                    data['timestamp'],
+                    data['instrument_key'],
+                    data['whale_type'],
+                    data['alert_type'],
+                    data['alert_value'],
+                    data['signal']
+                )
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to insert whale alert: {e}")
+            return False
 
-    async def insert_market_sentiment(self, data: Dict[str, Any]):
+    async def insert_market_sentiment(self, data: Dict[str, Any]) -> bool:
         """Insert a market sentiment record."""
         if not self.pool:
-            return
+            logger.warning("⚠️ PostgreSQL pool not available...")
+            return False
 
         query = """
             INSERT INTO market_sentiment 
@@ -279,19 +312,24 @@ class PostgresClient:
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         """
         
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                query,
-                data['timestamp'],
-                data['instrument_key'],
-                data['sentiment'],
-                data['sentiment_score'],
-                json.dumps(data['components']),
-                json.dumps(data['support_resistance']),
-                json.dumps(data['trade_setup']),
-                data['market_regime'],
-                json.dumps(data['key_insights'])
-            )
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    query,
+                    data['timestamp'],
+                    data['instrument_key'],
+                    data['sentiment'],
+                    data['sentiment_score'],
+                    json.dumps(data['components']),
+                    json.dumps(data['support_resistance']),
+                    json.dumps(data['trade_setup']),
+                    data['market_regime'],
+                    json.dumps(data['key_insights'])
+                )
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to insert market sentiment: {e}")
+            return False
 
     async def get_recent_signals(self, instrument_key: str, limit: int = 10) -> Dict[str, List[Dict[str, Any]]]:
         """Fetch recent signals for an instrument."""
