@@ -12,6 +12,7 @@ from app.db.redis_client import RedisClient
 from app.db.postgres_client import PostgresClient
 from app.services.processor import MarketDataProcessor
 from app.analytics.pattern_detector import analyze_oi_pattern
+from app.analytics.imbalance_detector import analyze_order_book_imbalance
 from app.core.time_utils import get_ist_time, get_seconds_to_next_minute
 
 # Configure Logging
@@ -82,10 +83,13 @@ class SignalGenerator:
                     # 5. Convert to Arrays
                     arrays = self.processor.get_arrays(ticks)
                     
-                    # 6. Analyze Pattern
+                    # 6. Analyze Pattern (Metric 1)
                     result = analyze_oi_pattern(arrays)
                     
-                    # 7. Publish Signal (ALL Patterns)
+                    # 7. Analyze Imbalance (Metric 2)
+                    imbalance_result = analyze_order_book_imbalance(arrays)
+                    
+                    # 8. Publish Signal (ALL Patterns)
                     signal_payload = {
                         "timestamp": current_time, # Keep as datetime object for PG (IST aware)
                         "instrument_key": instrument_key,
@@ -113,6 +117,18 @@ class SignalGenerator:
                     if result.get('is_panic', False):
                         await self.pg.insert_panic_signal(signal_payload)
                         logger.info(f"🔥 PANIC SIGNAL: {instrument_key} | {result['pattern']} | OI Drop: {result['oi_change']} | Price Jump: {result['price_change_pct']:.2f}%")
+                    
+                    # Insert into PostgreSQL (Imbalance Table)
+                    imbalance_payload = {
+                        "timestamp": current_time,
+                        "instrument_key": instrument_key,
+                        "tbq": imbalance_result['tbq'],
+                        "tsq": imbalance_result['tsq'],
+                        "imbalance_ratio": imbalance_result['imbalance_ratio'],
+                        "signal": imbalance_result['signal'],
+                        "ltp": imbalance_result['ltp']
+                    }
+                    await self.pg.insert_imbalance(imbalance_payload)
                     
                     if result['pattern'] not in ["Low Volume", "Neutral", "Insufficient Data"]:
                         logger.info(f"🚨 SIGNAL: {instrument_key} | {result['pattern']} ({result['signal']}) | OI Chg: {result['oi_change']}")

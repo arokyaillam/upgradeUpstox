@@ -74,6 +74,22 @@ class PostgresClient:
             """,
             """
             CREATE INDEX IF NOT EXISTS idx_panic_signals_timestamp ON panic_signals(timestamp);
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS order_imbalance (
+                id SERIAL PRIMARY KEY,
+                timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+                instrument_key VARCHAR(50) NOT NULL,
+                tbq INTEGER,
+                tsq INTEGER,
+                imbalance_ratio FLOAT,
+                signal VARCHAR(50) NOT NULL,
+                ltp FLOAT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_order_imbalance_timestamp ON order_imbalance(timestamp);
             """
         ]
 
@@ -129,4 +145,27 @@ class PostgresClient:
                 data['metrics']['oi_change'],
                 data['metrics']['volume_change'],
                 data['metrics']['delta_change']
+            )
+
+    async def insert_imbalance(self, data: Dict[str, Any]):
+        """Insert an order book imbalance record."""
+        if not self.pool:
+            return
+
+        query = """
+            INSERT INTO order_imbalance 
+            (timestamp, instrument_key, tbq, tsq, imbalance_ratio, signal, ltp)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+        """
+        
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                query,
+                data['timestamp'],
+                data['instrument_key'],
+                data['tbq'],
+                data['tsq'],
+                data['imbalance_ratio'],
+                data['signal'],
+                data['ltp']
             )
