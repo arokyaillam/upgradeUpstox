@@ -12,6 +12,7 @@ from app.db.redis_client import RedisClient
 from app.db.postgres_client import PostgresClient
 from app.services.processor import MarketDataProcessor
 from app.analytics.pattern_detector import analyze_oi_pattern
+from app.core.time_utils import get_ist_time, get_seconds_to_next_minute
 
 # Configure Logging
 logging.basicConfig(
@@ -39,17 +40,15 @@ class SignalGenerator:
         try:
             while self.running:
                 # 1. Align to next minute start
-                now = datetime.now()
-                # Calculate seconds to sleep to reach next minute (00 seconds)
-                sleep_seconds = 60 - now.second - (now.microsecond / 1_000_000)
-                if sleep_seconds < 0.1: sleep_seconds += 60 # Safety buffer if too close
+                sleep_seconds = get_seconds_to_next_minute()
+                if sleep_seconds < 0.1: sleep_seconds += 60 # Safety buffer
                 
                 logger.info(f"⏳ Waiting {sleep_seconds:.2f}s for next minute candle...")
                 await asyncio.sleep(sleep_seconds)
                 
                 # 2. Define Time Window (Previous Minute)
                 # If we just woke up at 09:31:00, we want 09:30:00 to 09:31:00
-                current_time = datetime.now()
+                current_time = get_ist_time()
                 end_time_ms = int(current_time.timestamp() * 1000)
                 start_time_ms = end_time_ms - 60000 # 60 seconds ago
                 
@@ -86,29 +85,31 @@ class SignalGenerator:
                     # 6. Analyze Pattern
                     result = analyze_oi_pattern(arrays)
                     
-                    # 7. Publish Signal if Significant
-                    if result['pattern'] not in ["Low Volume", "Neutral", "Insufficient Data"]:
-                        signal_payload = {
-                            "timestamp": current_time, # Keep as datetime object for PG
-                            "instrument_key": instrument_key,
-                            "pattern": result['pattern'],
-                            "signal": result['signal'],
-                            "metrics": {
-                                "price_change": result['price_change'],
-                                "oi_change": result['oi_change'],
-                                "volume_change": result['volume_change']
-                            }
+                    # 7. Publish Signal (ALL Patterns)
+                    signal_payload = {
+                        "timestamp": current_time, # Keep as datetime object for PG (IST aware)
+                        "instrument_key": instrument_key,
+                        "pattern": result['pattern'],
+                        "signal": result['signal'],
+                        "metrics": {
+                            "price_change": result['price_change'],
+                            "oi_change": result['oi_change'],
+                            "volume_change": result['volume_change']
                         }
-                        
-                        # Publish to Redis Pub/Sub (Convert datetime to str for JSON)
-                        redis_payload = signal_payload.copy()
-                        redis_payload['timestamp'] = redis_payload['timestamp'].isoformat()
-                        await self.redis.client.publish("trade_signals", json.dumps(redis_payload))
-                        
-                        # Insert into PostgreSQL
-                        await self.pg.insert_pattern(signal_payload)
-                        
+                    }
+                    
+                    # Publish to Redis Pub/Sub (Convert datetime to str for JSON)
+                    redis_payload = signal_payload.copy()
+                    redis_payload['timestamp'] = redis_payload['timestamp'].isoformat()
+                    await self.redis.client.publish("trade_signals", json.dumps(redis_payload))
+                    
+                    # Insert into PostgreSQL
+                    await self.pg.insert_pattern(signal_payload)
+                    
+                    if result['pattern'] not in ["Low Volume", "Neutral", "Insufficient Data"]:
                         logger.info(f"🚨 SIGNAL: {instrument_key} | {result['pattern']} ({result['signal']}) | OI Chg: {result['oi_change']}")
+                    else:
+                        logger.debug(f"ℹ️  UPDATE: {instrument_key} | {result['pattern']} | OI Chg: {result['oi_change']}")
                         
         except asyncio.CancelledError:
             logger.info("🛑 Signal Generator stopping...")
