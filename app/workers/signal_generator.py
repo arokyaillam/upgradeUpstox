@@ -13,6 +13,7 @@ from app.db.postgres_client import PostgresClient
 from app.services.processor import MarketDataProcessor
 from app.analytics.pattern_detector import analyze_oi_pattern
 from app.analytics.imbalance_detector import analyze_order_book_imbalance
+from app.analytics.greeks_analyzer import analyze_greeks_momentum
 from app.core.time_utils import get_ist_time, get_seconds_to_next_minute
 
 # Configure Logging
@@ -89,7 +90,10 @@ class SignalGenerator:
                     # 7. Analyze Imbalance (Metric 2)
                     imbalance_result = analyze_order_book_imbalance(arrays)
                     
-                    # 8. Publish Signal (ALL Patterns)
+                    # 8. Analyze Greeks Momentum (Metric 4)
+                    greeks_result = analyze_greeks_momentum(arrays)
+                    
+                    # 9. Publish Signal (ALL Patterns)
                     signal_payload = {
                         "timestamp": current_time, # Keep as datetime object for PG (IST aware)
                         "instrument_key": instrument_key,
@@ -101,7 +105,8 @@ class SignalGenerator:
                             "volume_change": result['volume_change'],
                             "ltp": result['ltp'],
                             "price_change_pct": result['price_change_pct'],
-                            "delta_change": result['delta_change']
+                            "delta_change": result['delta_change'],
+                            "momentum_score": greeks_result['momentum_score']
                         }
                     }
                     
@@ -129,6 +134,20 @@ class SignalGenerator:
                         "ltp": imbalance_result['ltp']
                     }
                     await self.pg.insert_imbalance(imbalance_payload)
+                    
+                    # Insert into PostgreSQL (Greeks Momentum Table)
+                    greeks_payload = {
+                        "timestamp": current_time,
+                        "instrument_key": instrument_key,
+                        "delta_velocity": greeks_result['delta_velocity'],
+                        "gamma_acceleration": greeks_result['gamma_acceleration'],
+                        "iv_velocity": greeks_result['iv_velocity'],
+                        "theta_acceleration": greeks_result['theta_acceleration'],
+                        "momentum_score": greeks_result['momentum_score'],
+                        "momentum_type": greeks_result['momentum_type'],
+                        "signal": greeks_result['signal']
+                    }
+                    await self.pg.insert_greeks_momentum(greeks_payload)
                     
                     if result['pattern'] not in ["Low Volume", "Neutral", "Insufficient Data"]:
                         logger.info(f"🚨 SIGNAL: {instrument_key} | {result['pattern']} ({result['signal']}) | OI Chg: {result['oi_change']}")

@@ -90,6 +90,24 @@ class PostgresClient:
             """,
             """
             CREATE INDEX IF NOT EXISTS idx_order_imbalance_timestamp ON order_imbalance(timestamp);
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS greeks_momentum (
+                id SERIAL PRIMARY KEY,
+                timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+                instrument_key VARCHAR(50) NOT NULL,
+                delta_velocity FLOAT,
+                gamma_acceleration FLOAT,
+                iv_velocity FLOAT,
+                theta_acceleration FLOAT,
+                momentum_score FLOAT,
+                momentum_type VARCHAR(50),
+                signal VARCHAR(50),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_greeks_momentum_timestamp ON greeks_momentum(timestamp);
             """
         ]
 
@@ -168,4 +186,29 @@ class PostgresClient:
                 data['imbalance_ratio'],
                 data['signal'],
                 data['ltp']
+            )
+
+    async def insert_greeks_momentum(self, data: Dict[str, Any]):
+        """Insert a greeks momentum record."""
+        if not self.pool:
+            return
+
+        query = """
+            INSERT INTO greeks_momentum 
+            (timestamp, instrument_key, delta_velocity, gamma_acceleration, iv_velocity, theta_acceleration, momentum_score, momentum_type, signal)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        """
+        
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                query,
+                data['timestamp'],
+                data['instrument_key'],
+                data['delta_velocity'],
+                data['gamma_acceleration'],
+                data['iv_velocity'],
+                data['theta_acceleration'],
+                data['momentum_score'],
+                data['momentum_type'],
+                data['signal']
             )
