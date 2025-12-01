@@ -15,6 +15,7 @@ from app.analytics.pattern_detector import analyze_oi_pattern
 from app.analytics.imbalance_detector import analyze_order_book_imbalance
 from app.analytics.greeks_analyzer import analyze_greeks_momentum
 from app.analytics.whale_detector import analyze_whale_activity
+from app.analytics.sentiment_analyzer import analyze_market_sentiment
 from app.core.time_utils import get_ist_time, get_seconds_to_next_minute
 
 # Configure Logging
@@ -165,6 +166,27 @@ class SignalGenerator:
                         }
                         await self.pg.insert_whale_alert(whale_payload)
                         logger.info(f"🐋 WHALE ALERT: {instrument_key} | {alert['whale_type']} | {alert['alert_type']} ({alert['alert_value']})")
+                    
+                    # 11. Ultimate Sentiment Analysis (Metric 5)
+                    # Fetch recent data from PG to include context
+                    pg_data = await self.pg.get_recent_signals(instrument_key, limit=10)
+                    
+                    # Analyze Sentiment
+                    sentiment_result = analyze_market_sentiment(pg_data, result['ltp'])
+                    
+                    # Insert into PostgreSQL (Sentiment Table)
+                    sentiment_payload = {
+                        "timestamp": current_time,
+                        "instrument_key": instrument_key,
+                        "sentiment": sentiment_result['sentiment'],
+                        "sentiment_score": sentiment_result['sentiment_score'],
+                        "components": sentiment_result['components'],
+                        "support_resistance": sentiment_result['support_resistance'],
+                        "trade_setup": sentiment_result['trade_setup'],
+                        "market_regime": sentiment_result['market_regime'],
+                        "key_insights": sentiment_result['key_insights']
+                    }
+                    await self.pg.insert_market_sentiment(sentiment_payload)
                     
                     if result['pattern'] not in ["Low Volume", "Neutral", "Insufficient Data"]:
                         logger.info(f"🚨 SIGNAL: {instrument_key} | {result['pattern']} ({result['signal']}) | OI Chg: {result['oi_change']}")

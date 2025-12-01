@@ -123,6 +123,24 @@ class PostgresClient:
             """,
             """
             CREATE INDEX IF NOT EXISTS idx_whale_alerts_timestamp ON whale_alerts(timestamp);
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS market_sentiment (
+                id SERIAL PRIMARY KEY,
+                timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+                instrument_key VARCHAR(50) NOT NULL,
+                sentiment VARCHAR(50),
+                sentiment_score FLOAT,
+                components JSONB,
+                support_resistance JSONB,
+                trade_setup JSONB,
+                market_regime VARCHAR(100),
+                key_insights JSONB,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_market_sentiment_timestamp ON market_sentiment(timestamp);
             """
         ]
 
@@ -249,3 +267,78 @@ class PostgresClient:
                 data['alert_value'],
                 data['signal']
             )
+
+    async def insert_market_sentiment(self, data: Dict[str, Any]):
+        """Insert a market sentiment record."""
+        if not self.pool:
+            return
+
+        query = """
+            INSERT INTO market_sentiment 
+            (timestamp, instrument_key, sentiment, sentiment_score, components, support_resistance, trade_setup, market_regime, key_insights)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        """
+        
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                query,
+                data['timestamp'],
+                data['instrument_key'],
+                data['sentiment'],
+                data['sentiment_score'],
+                json.dumps(data['components']),
+                json.dumps(data['support_resistance']),
+                json.dumps(data['trade_setup']),
+                data['market_regime'],
+                json.dumps(data['key_insights'])
+            )
+
+    async def get_recent_signals(self, instrument_key: str, limit: int = 10) -> Dict[str, List[Dict[str, Any]]]:
+        """Fetch recent signals for an instrument."""
+        if not self.pool:
+            return {}
+
+        results = {}
+        
+        async with self.pool.acquire() as conn:
+            # 1. Market Patterns
+            rows = await conn.fetch("""
+                SELECT * FROM market_patterns 
+                WHERE instrument_key = $1 
+                ORDER BY timestamp DESC LIMIT $2
+            """, instrument_key, limit)
+            results['patterns'] = [dict(r) for r in rows]
+            
+            # 2. Panic Signals
+            rows = await conn.fetch("""
+                SELECT * FROM panic_signals 
+                WHERE instrument_key = $1 
+                ORDER BY timestamp DESC LIMIT $2
+            """, instrument_key, limit)
+            results['panic'] = [dict(r) for r in rows]
+            
+            # 3. Order Imbalance
+            rows = await conn.fetch("""
+                SELECT * FROM order_imbalance 
+                WHERE instrument_key = $1 
+                ORDER BY timestamp DESC LIMIT $2
+            """, instrument_key, limit)
+            results['imbalance'] = [dict(r) for r in rows]
+            
+            # 4. Greeks Momentum
+            rows = await conn.fetch("""
+                SELECT * FROM greeks_momentum 
+                WHERE instrument_key = $1 
+                ORDER BY timestamp DESC LIMIT $2
+            """, instrument_key, limit)
+            results['greeks'] = [dict(r) for r in rows]
+            
+            # 5. Whale Alerts
+            rows = await conn.fetch("""
+                SELECT * FROM whale_alerts 
+                WHERE instrument_key = $1 
+                ORDER BY timestamp DESC LIMIT $2
+            """, instrument_key, limit)
+            results['whales'] = [dict(r) for r in rows]
+            
+        return results
