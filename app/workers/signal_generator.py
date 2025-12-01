@@ -94,7 +94,10 @@ class SignalGenerator:
                         "metrics": {
                             "price_change": result['price_change'],
                             "oi_change": result['oi_change'],
-                            "volume_change": result['volume_change']
+                            "volume_change": result['volume_change'],
+                            "ltp": result['ltp'],
+                            "price_change_pct": result['price_change_pct'],
+                            "delta_change": result['delta_change']
                         }
                     }
                     
@@ -103,8 +106,13 @@ class SignalGenerator:
                     redis_payload['timestamp'] = redis_payload['timestamp'].isoformat()
                     await self.redis.client.publish("trade_signals", json.dumps(redis_payload))
                     
-                    # Insert into PostgreSQL
+                    # Insert into PostgreSQL (Main Table)
                     await self.pg.insert_pattern(signal_payload)
+                    
+                    # Insert into PostgreSQL (Panic Table) if Panic Detected
+                    if result.get('is_panic', False):
+                        await self.pg.insert_panic_signal(signal_payload)
+                        logger.info(f"🔥 PANIC SIGNAL: {instrument_key} | {result['pattern']} | OI Drop: {result['oi_change']} | Price Jump: {result['price_change_pct']:.2f}%")
                     
                     if result['pattern'] not in ["Low Volume", "Neutral", "Insufficient Data"]:
                         logger.info(f"🚨 SIGNAL: {instrument_key} | {result['pattern']} ({result['signal']}) | OI Chg: {result['oi_change']}")

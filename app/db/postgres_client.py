@@ -56,6 +56,24 @@ class PostgresClient:
             """,
             """
             CREATE INDEX IF NOT EXISTS idx_market_patterns_instrument ON market_patterns(instrument_key);
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS panic_signals (
+                id SERIAL PRIMARY KEY,
+                timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+                instrument_key VARCHAR(50) NOT NULL,
+                pattern VARCHAR(50) NOT NULL,
+                signal VARCHAR(50) NOT NULL,
+                ltp FLOAT,
+                price_change_pct FLOAT,
+                oi_change INTEGER,
+                volume_change INTEGER,
+                delta_change FLOAT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_panic_signals_timestamp ON panic_signals(timestamp);
             """
         ]
 
@@ -86,4 +104,29 @@ class PostgresClient:
                 data['metrics']['price_change'],
                 data['metrics']['oi_change'],
                 data['metrics']['volume_change']
+            )
+
+    async def insert_panic_signal(self, data: Dict[str, Any]):
+        """Insert a panic signal."""
+        if not self.pool:
+            return
+
+        query = """
+            INSERT INTO panic_signals 
+            (timestamp, instrument_key, pattern, signal, ltp, price_change_pct, oi_change, volume_change, delta_change)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        """
+        
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                query,
+                data['timestamp'],
+                data['instrument_key'],
+                data['pattern'],
+                data['signal'],
+                data['metrics']['ltp'],
+                data['metrics']['price_change_pct'],
+                data['metrics']['oi_change'],
+                data['metrics']['volume_change'],
+                data['metrics']['delta_change']
             )
